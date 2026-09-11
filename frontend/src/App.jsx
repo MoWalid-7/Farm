@@ -1,4 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
+import CustomersPage from './pages/CustomersPage.jsx';
+import SalesPage from './pages/SalesPage.jsx';
+import WorkersPage from './pages/WorkersPage.jsx';
+import WorkerPaymentsPage from './pages/WorkerPaymentsPage.jsx';
+import CyclesPage from './pages/CyclesPage.jsx';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://backend.test/api/v1';
 const emptySettings = {
@@ -8,7 +13,6 @@ const emptySettings = {
   backup_enabled: true,
   backup_frequency: 'weekly',
 };
-
 
 async function apiRequest(path, options = {}) {
   const token = localStorage.getItem('farm_token');
@@ -53,51 +57,43 @@ export default function App() {
   const [status, setStatus] = useState({ type: 'info', message: '' });
   const [loading, setLoading] = useState(false);
   const [loginForm, setLoginForm] = useState({ email: 'owner@farm.test', password: 'secret123' });
-  const [workerForm, setWorkerForm] = useState({ name: '', phone: '', job_title: '', daily_wage: '' });
   const [moneyForm, setMoneyForm] = useState({ type: 'expense', amount: '', category: '', description: '', date: today() });
-  const [paymentForm, setPaymentForm] = useState({ worker_id: '', amount: '', notes: '', date: today() });
-  const [cycleForm, setCycleForm] = useState({ name: '', start_date: today(), bird_count: '', status: 'active' });
   const [weightForm, setWeightForm] = useState({ cycle_id: '', bird_count: '', total_weight: '', date: today() });
-  const [customerForm, setCustomerForm] = useState({ name: '', phone: '', address: '' });
-  const [saleForm, setSaleForm] = useState({ customer_id: '', cycle_id: '', quantity: '', weight: '', price: '', paid_amount: '', date: today() });
   const [supplierForm, setSupplierForm] = useState({ name: '', phone: '', email: '', address: '' });
   const [itemForm, setItemForm] = useState({ supplier_id: '', name: '', sku: '', unit: 'كجم', minimum_stock: '', description: '' });
   const [stockForm, setStockForm] = useState({ inventory_item_id: '', type: 'purchase', quantity: '', notes: '', date: today() });
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [reportType, setReportType] = useState('financial'); // 'financial' or 'operations'
+  const [reportType, setReportType] = useState('financial');
   const [operationsLog, setOperationsLog] = useState([]);
-  
+
   // PWA State
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [installPrompt, setInstallPrompt] = useState(null);
   const [showInstallBanner, setShowInstallBanner] = useState(false);
   const [updateWorker, setUpdateWorker] = useState(null);
 
+  // Status auto-clear
+  useEffect(() => {
+    if (status.message) {
+      const t = setTimeout(() => setStatus({ type: 'info', message: '' }), 4000);
+      return () => clearTimeout(t);
+    }
+  }, [status]);
+
   // PWA Event Listeners
   useEffect(() => {
     const handleOnline = () => setIsOffline(false);
     const handleOffline = () => setIsOffline(true);
-    
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
-    
-    // Install Prompt
     const handleBeforeInstallPrompt = (e) => {
       e.preventDefault();
       setInstallPrompt(e);
-      // Only show banner if not dismissed before
-      if (localStorage.getItem('farm_pwa_dismissed') !== 'true') {
-        setShowInstallBanner(true);
-      }
+      if (localStorage.getItem('farm_pwa_dismissed') !== 'true') setShowInstallBanner(true);
     };
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    
-    // Update detection
-    const handleUpdateAvailable = (e) => {
-      setUpdateWorker(e.detail.worker);
-    };
+    const handleUpdateAvailable = (e) => setUpdateWorker(e.detail.worker);
     window.addEventListener('pwa-update-available', handleUpdateAvailable);
-    
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
@@ -110,32 +106,20 @@ export default function App() {
     if (!installPrompt) return;
     installPrompt.prompt();
     const { outcome } = await installPrompt.userChoice;
-    if (outcome === 'accepted') {
-      setShowInstallBanner(false);
-    }
+    if (outcome === 'accepted') setShowInstallBanner(false);
     setInstallPrompt(null);
   };
-  
-  const dismissInstall = () => {
-    setShowInstallBanner(false);
-    localStorage.setItem('farm_pwa_dismissed', 'true');
-  };
-  
-  const applyUpdate = () => {
-    if (updateWorker) {
-      updateWorker.postMessage({ type: 'SKIP_WAITING' });
-      window.location.reload();
-    }
-  };
+  const dismissInstall = () => { setShowInstallBanner(false); localStorage.setItem('farm_pwa_dismissed', 'true'); };
+  const applyUpdate = () => { if (updateWorker) { updateWorker.postMessage({ type: 'SKIP_WAITING' }); window.location.reload(); } };
 
   const notify = (type, message) => setStatus({ type, message });
 
   const loadDashboard = useCallback(async () => {
     const [dashboard, workerResponse, cycleResponse, customerResponse, supplierResponse, itemResponse, lowStockResponse, notificationResponse, backupResponse] = await Promise.all([
       apiRequest('/dashboard/summary'),
-      apiRequest('/workers'),
-      apiRequest('/cycles'),
-      apiRequest('/customers'),
+      apiRequest('/workers?per_page=100'),
+      apiRequest('/cycles?per_page=100'),
+      apiRequest('/customers?per_page=100'),
       apiRequest('/suppliers'),
       apiRequest('/inventory-items'),
       apiRequest('/inventory-items/low-stock'),
@@ -155,15 +139,10 @@ export default function App() {
 
   const logout = useCallback(async () => {
     if (token) {
-      try {
-        await apiRequest('/auth/logout', { method: 'POST' });
-      } catch (error) {
-        notify('error', error.message);
-      }
+      try { await apiRequest('/auth/logout', { method: 'POST' }); } catch { /* ignore */ }
     }
     localStorage.removeItem('farm_token');
-    setToken('');
-    setUser(null);
+    setToken(''); setUser(null);
   }, [token]);
 
   useEffect(() => {
@@ -174,25 +153,18 @@ export default function App() {
         setSettings({ ...emptySettings, ...setting.data });
         return loadDashboard();
       })
-      .catch((error) => {
-        notify('error', error.message);
-        logout();
-      });
+      .catch((error) => { notify('error', error.message); logout(); });
   }, [token, loadDashboard, logout]);
 
   const handleLogin = async (event) => {
-    event.preventDefault();
-    setLoading(true);
+    event.preventDefault(); setLoading(true);
     try {
       const result = await apiRequest('/auth/login', { method: 'POST', body: JSON.stringify(loginForm) });
       localStorage.setItem('farm_token', result.data.token);
       setToken(result.data.token);
       notify('success', 'تم تسجيل الدخول بنجاح.');
-    } catch (error) {
-      notify('error', error.message);
-    } finally {
-      setLoading(false);
-    }
+    } catch (error) { notify('error', error.message); }
+    finally { setLoading(false); }
   };
 
   const search = async (event) => {
@@ -201,9 +173,7 @@ export default function App() {
     try {
       const result = await apiRequest(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
       setSearchResults(result.data || []);
-    } catch (error) {
-      notify('error', error.message);
-    }
+    } catch (error) { notify('error', error.message); }
   };
 
   const loadReport = async (event) => {
@@ -216,186 +186,65 @@ export default function App() {
         const result = await apiRequest(`/activity-logs?from=${reportDate}&to=${reportDate}`);
         setOperationsLog(result.data?.data || result.data || []);
       }
-    } catch (error) {
-      notify('error', error.message);
-    }
+    } catch (error) { notify('error', error.message); }
   };
 
   const createBackup = async () => {
-    try {
-      await apiRequest('/backups', { method: 'POST' });
-      await loadDashboard();
-      notify('success', 'تم إنشاء النسخة الاحتياطية.');
-    } catch (error) {
-      notify('error', error.message);
-    }
+    try { await apiRequest('/backups', { method: 'POST' }); await loadDashboard(); notify('success', 'تم إنشاء النسخة الاحتياطية.'); }
+    catch (error) { notify('error', error.message); }
   };
 
   const downloadBackup = async (backup) => {
-    const response = await fetch(`${API_BASE}/backups/${backup.id}/download`, {
-      headers: { Authorization: `Bearer ${localStorage.getItem('farm_token')}` },
-    });
-    if (!response.ok) {
-      notify('error', 'تعذر تنزيل النسخة الاحتياطية.');
-      return;
-    }
+    const response = await fetch(`${API_BASE}/backups/${backup.id}/download`, { headers: { Authorization: `Bearer ${localStorage.getItem('farm_token')}` } });
+    if (!response.ok) { notify('error', 'تعذر تنزيل النسخة الاحتياطية.'); return; }
     const url = URL.createObjectURL(await response.blob());
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = backup.filename;
-    link.click();
-    URL.revokeObjectURL(url);
+    const link = document.createElement('a'); link.href = url; link.download = backup.filename; link.click(); URL.revokeObjectURL(url);
   };
 
   const exportExcel = () => {
-    let htmlContent = `
-    <html xmlns:x="urn:schemas-microsoft-com:office:excel" dir="rtl">
-    <head>
-        <meta charset="utf-8">
-        <style>
-            table { border-collapse: collapse; width: 100%; font-family: Tahoma, Arial, sans-serif; }
-            th, td { border: 1px solid #ddd; padding: 10px; text-align: center; font-size: 14px; }
-            th { background-color: #1e3a8a; color: white; font-weight: bold; }
-            .header { font-size: 18px; font-weight: bold; background-color: #f1f5f9; padding: 15px; text-align: center; }
-            .profit-cell { background-color: #dcfce7; color: #166534; font-weight: bold; }
-            .expense-cell { background-color: #fee2e2; color: #991b1b; font-weight: bold; }
-        </style>
-    </head>
-    <body>
-    `;
-
+    let htmlContent = `<html xmlns:x="urn:schemas-microsoft-com:office:excel" dir="rtl"><head><meta charset="utf-8"><style>table{border-collapse:collapse;width:100%;font-family:Tahoma}th,td{border:1px solid #ddd;padding:10px;text-align:center}th{background:#1e3a8a;color:#fff}</style></head><body>`;
     if (reportType === 'financial' && report) {
-      htmlContent += `
-      <table>
-          <tr><td colspan="2" class="header">الملخص المالي - ${reportDate}</td></tr>
-          <tr><th style="width: 50%;">البيان</th><th>القيمة (ج.م)</th></tr>
-          <tr><td>إجمالي الإيرادات</td><td class="profit-cell">${report.summary.total_revenues}</td></tr>
-          <tr><td>إجمالي المصروفات</td><td class="expense-cell">${report.summary.total_expenses}</td></tr>
-          <tr><td>صافي الربح</td><td style="font-weight: bold; font-size: 16px;">${report.summary.net_profit}</td></tr>
-      </table>
-      <br><br>
-      <table>
-          <tr><td colspan="3" class="header">تفاصيل الفترات</td></tr>
-          <tr><th>الفترة</th><th>إيرادات (ج.م)</th><th>أرباح (ج.م)</th></tr>
-      `;
-      report.breakdown.forEach(row => {
-        htmlContent += `<tr><td>${row.label}</td><td>${row.summary.total_revenues}</td><td>${row.summary.net_profit}</td></tr>`;
-      });
+      htmlContent += `<table><tr><td colspan="2" style="font-weight:bold;font-size:18px">الملخص المالي - ${reportDate}</td></tr><tr><th>البيان</th><th>القيمة (ج.م)</th></tr><tr><td>إجمالي الإيرادات</td><td>${report.summary.total_revenues}</td></tr><tr><td>إجمالي المصروفات</td><td>${report.summary.total_expenses}</td></tr><tr><td>صافي الربح</td><td>${report.summary.net_profit}</td></tr></table><br>`;
+      report.breakdown.forEach(row => { htmlContent += `<tr><td>${row.label}</td><td>${row.summary.total_revenues}</td><td>${row.summary.net_profit}</td></tr>`; });
       htmlContent += `</table>`;
     } else if (reportType === 'operations' && operationsLog.length > 0) {
-      htmlContent += `
-      <table>
-          <tr><td colspan="3" class="header">سجل العمليات - ${reportDate}</td></tr>
-          <tr><th style="width: 25%;">التاريخ</th><th style="width: 25%;">العملية</th><th style="width: 50%;">التفاصيل</th></tr>
-      `;
-      operationsLog.forEach(log => {
-        htmlContent += `<tr>
-            <td>${new Date(log.created_at).toLocaleString('ar-EG')}</td>
-            <td>${log.description || log.event}</td>
-            <td style="text-align: right; direction: ltr;">${JSON.stringify(log.properties)}</td>
-        </tr>`;
-      });
+      htmlContent += `<table><tr><td colspan="3" style="font-weight:bold">سجل العمليات - ${reportDate}</td></tr><tr><th>التاريخ</th><th>العملية</th><th>التفاصيل</th></tr>`;
+      operationsLog.forEach(log => { htmlContent += `<tr><td>${new Date(log.created_at).toLocaleString('ar-EG')}</td><td>${log.description || log.event}</td><td>${JSON.stringify(log.properties)}</td></tr>`; });
       htmlContent += `</table>`;
     }
-
     htmlContent += `</body></html>`;
-
     const blob = new Blob([htmlContent], { type: 'application/vnd.ms-excel' });
     const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `report-${reportDate}.xls`;
-    link.click();
-    URL.revokeObjectURL(url);
+    const link = document.createElement('a'); link.href = url; link.download = `report-${reportDate}.xls`; link.click(); URL.revokeObjectURL(url);
   };
 
-  const handlePrint = () => {
-    window.print();
-  };
-
-  const createWorker = async (event) => {
-    event.preventDefault();
-    setLoading(true);
-    try {
-      await apiRequest('/workers', { method: 'POST', body: JSON.stringify(workerForm) });
-      setWorkerForm({ name: '', phone: '', job_title: '', daily_wage: '' });
-      await loadDashboard();
-      notify('success', 'تمت إضافة العامل.');
-    } catch (error) {
-      notify('error', error.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const handlePrint = () => window.print();
 
   const createMoneyRecord = async (event) => {
-    event.preventDefault();
-    setLoading(true);
+    event.preventDefault(); setLoading(true);
     const isExpense = moneyForm.type === 'expense';
-    const payload = {
-      amount: moneyForm.amount,
-      description: moneyForm.description,
-      ...(isExpense
-        ? { category: moneyForm.category, expense_date: moneyForm.date }
-        : { source: moneyForm.category, revenue_date: moneyForm.date }),
-    };
+    const payload = { amount: moneyForm.amount, description: moneyForm.description, ...(isExpense ? { category: moneyForm.category, expense_date: moneyForm.date } : { source: moneyForm.category, revenue_date: moneyForm.date }) };
     try {
       await apiRequest(isExpense ? '/expenses' : '/revenues', { method: 'POST', body: JSON.stringify(payload) });
       setMoneyForm({ ...moneyForm, amount: '', category: '', description: '' });
       await loadDashboard();
       notify('success', isExpense ? 'تم تسجيل المصروف.' : 'تم تسجيل الإيراد.');
-    } catch (error) {
-      notify('error', error.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const createPayment = async (event) => {
-    event.preventDefault();
-    setLoading(true);
-    try {
-      await apiRequest('/worker-payments', {
-        method: 'POST',
-        body: JSON.stringify({ worker_id: paymentForm.worker_id, amount: paymentForm.amount, notes: paymentForm.notes, payment_date: paymentForm.date }),
-      });
-      setPaymentForm({ ...paymentForm, worker_id: '', amount: '', notes: '' });
-      await loadDashboard();
-      notify('success', 'تم تسجيل دفعة العامل.');
-    } catch (error) {
-      notify('error', error.message);
-    } finally {
-      setLoading(false);
-    }
+    } catch (error) { notify('error', error.message); }
+    finally { setLoading(false); }
   };
 
   const createResource = async (event, path, body, reset) => {
-    event.preventDefault();
-    setLoading(true);
-    try {
-      await apiRequest(path, { method: 'POST', body: JSON.stringify(body) });
-      reset();
-      await loadDashboard();
-      notify('success', 'تم الحفظ بنجاح.');
-    } catch (error) {
-      notify('error', error.message);
-    } finally {
-      setLoading(false);
-    }
+    event.preventDefault(); setLoading(true);
+    try { await apiRequest(path, { method: 'POST', body: JSON.stringify(body) }); reset(); await loadDashboard(); notify('success', 'تم الحفظ بنجاح.'); }
+    catch (error) { notify('error', error.message); }
+    finally { setLoading(false); }
   };
 
   const saveSettings = async (event) => {
-    event.preventDefault();
-    setLoading(true);
-    try {
-      const result = await apiRequest('/settings', { method: 'PUT', body: JSON.stringify(settings) });
-      setSettings(result.data);
-      notify('success', 'تم حفظ الإعدادات.');
-    } catch (error) {
-      notify('error', error.message);
-    } finally {
-      setLoading(false);
-    }
+    event.preventDefault(); setLoading(true);
+    try { const result = await apiRequest('/settings', { method: 'PUT', body: JSON.stringify(settings) }); setSettings(result.data); notify('success', 'تم حفظ الإعدادات.'); }
+    catch (error) { notify('error', error.message); }
+    finally { setLoading(false); }
   };
 
   if (!token) {
@@ -413,10 +262,11 @@ export default function App() {
   const tabs = [
     ['dashboard', '🏠', 'الرئيسية'],
     ['workers', '👷', 'العمال'],
-    ['money', '💰', 'المالية'],
     ['payments', '💳', 'مدفوعات العمال'],
-    ['operations', '🔄', 'الدورات والأوزان'],
-    ['sales', '🛒', 'العملاء والمبيعات'],
+    ['customers', '👥', 'العملاء'],
+    ['sales', '🛒', 'المبيعات'],
+    ['operations', '🔄', 'الدورات'],
+    ['money', '💰', 'المالية'],
     ['inventory', '📦', 'المخزون'],
     ['reports', '📊', 'التقارير'],
     ['backups', '💾', 'النسخ الاحتياطي'],
@@ -424,50 +274,21 @@ export default function App() {
     ['settings', '⚙️', 'الإعدادات'],
   ];
 
-  const fmt = (value) => typeof value === 'number' ? `${value.toLocaleString('ar-EG', {minimumFractionDigits: 2, maximumFractionDigits: 2})} ج.م` : '...';
+  const fmt = (value) => typeof value === 'number' ? `${value.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ج.م` : '...';
+  const fmtNum = (v) => v != null ? Number(v).toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
 
   return <div className="app-shell">
     {/* ===== PWA BANNERS ===== */}
-    {isOffline && (
-      <div className="pwa-banner offline">
-        <span className="banner-icon">📶❌</span>
-        أنت تتصفح بدون إنترنت (Offline Mode)
-      </div>
-    )}
-    
-    {updateWorker && (
-      <div className="pwa-banner update">
-        <div>
-          <strong>تحديث جديد!</strong> يتوفر إصدار أحدث من النظام.
-        </div>
-        <button className="primary small" onClick={applyUpdate}>تحديث الآن</button>
-      </div>
-    )}
-    
-    {showInstallBanner && installPrompt && (
-      <div className="pwa-banner install">
-        <div>
-          <strong>تثبيت التطبيق</strong> لتجربة أسرع ووصول بدون إنترنت.
-        </div>
-        <div className="banner-actions">
-          <button className="primary small" onClick={handleInstallClick}>تثبيت</button>
-          <button className="secondary small" onClick={dismissInstall}>لاحقاً</button>
-        </div>
-      </div>
-    )}
+    {isOffline && (<div className="pwa-banner offline"><span className="banner-icon">📶❌</span>أنت تتصفح بدون إنترنت (Offline Mode)</div>)}
+    {updateWorker && (<div className="pwa-banner update"><div><strong>تحديث جديد!</strong> يتوفر إصدار أحدث من النظام.</div><button className="primary small" onClick={applyUpdate}>تحديث الآن</button></div>)}
+    {showInstallBanner && installPrompt && (<div className="pwa-banner install"><div><strong>تثبيت التطبيق</strong> لتجربة أسرع ووصول بدون إنترنت.</div><div className="banner-actions"><button className="primary small" onClick={handleInstallClick}>تثبيت</button><button className="secondary small" onClick={dismissInstall}>لاحقاً</button></div></div>)}
 
     {/* ===== MOBILE NAVBAR ===== */}
     <nav className="mobile-navbar">
-      <button className="menu-btn" onClick={() => setIsSidebarOpen(true)}>
-        ☰
-      </button>
-      <div className="mobile-title">
-        <span className="logo-icon">🌾</span>
-        {settings.farm_name}
-      </div>
+      <button className="menu-btn" onClick={() => setIsSidebarOpen(true)}>☰</button>
+      <div className="mobile-title"><span className="logo-icon">🌾</span>{settings.farm_name}</div>
     </nav>
 
-    {/* ===== OVERLAY FOR MOBILE SIDEBAR ===== */}
     {isSidebarOpen && <div className="sidebar-overlay" onClick={() => setIsSidebarOpen(false)}></div>}
 
     {/* ===== SIDEBAR ===== */}
@@ -475,18 +296,14 @@ export default function App() {
       <div className="sidebar-logo">
         <div className="sidebar-brand">
           <div className="sidebar-icon">🌾</div>
-          <div>
-            <div className="sidebar-title">{settings.farm_name}</div>
-            <div className="sidebar-subtitle">Farm Pro</div>
-          </div>
+          <div><div className="sidebar-title">{settings.farm_name}</div><div className="sidebar-subtitle">Farm Pro</div></div>
         </div>
       </div>
       <nav className="sidebar-nav tabs">
         <div className="sidebar-section-label">القائمة الرئيسية</div>
         {tabs.map(([id, emoji, label]) => (
           <button key={id} className={activeTab === id ? 'tab active' : 'tab'} onClick={() => { setActiveTab(id); setIsSidebarOpen(false); }}>
-            <span className="tab-emoji">{emoji}</span>
-            {label}
+            <span className="tab-emoji">{emoji}</span>{label}
           </button>
         ))}
       </nav>
@@ -501,12 +318,18 @@ export default function App() {
 
     {/* ===== MAIN ===== */}
     <main className="dashboard">
-      <form className="search-bar" onSubmit={search}>
-        <input minLength="2" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="ابحث في العمال والعملاء والمخزون..." />
-        <button className="primary">بحث</button>
-      </form>
+      {/* Global search bar (for activity tab) */}
+      {activeTab === 'activity' && (
+        <form className="search-bar" onSubmit={search}>
+          <input minLength="2" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="ابحث في العمال والعملاء والمخزون..." />
+          <button className="primary">بحث</button>
+        </form>
+      )}
+
+      {/* Status toast */}
       {status.message && <div className={`status ${status.type}`}>{status.message}</div>}
 
+      {/* ===== DASHBOARD ===== */}
       {activeTab === 'dashboard' && (
         <>
           <section className="stats-grid">
@@ -518,7 +341,6 @@ export default function App() {
               ['العمال النشطون', summary?.active_workers],
             ].map(([label, value]) => <div className="card stat" key={label}><span>{label}</span><strong>{fmt(value)}</strong></div>)}
           </section>
-
           <section className="dashboard-content-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '24px', marginTop: '32px' }}>
             <div className="card panel">
               <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>⚡ إجراءات سريعة</h2>
@@ -529,82 +351,50 @@ export default function App() {
                 <button className="secondary" onClick={() => setActiveTab('inventory')}>📦 إضافة للمخزون</button>
               </div>
             </div>
-
             <div className="card panel">
               <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>🔔 تنبيهات النظام</h2>
               <ul style={{ listStyle: 'none', padding: 0, margin: '16px 0 0', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <li style={{ padding: '12px', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '8px', color: '#f87171' }}>
-                  <strong>⚠️ انخفاض المخزون:</strong> يوجد أصناف في المخزن قاربت على النفاد، يرجى مراجعة صفحة المخزون.
+                  <strong>⚠️ انخفاض المخزون:</strong> يوجد {lowStockItems.length} أصناف في المخزن قاربت على النفاد.
                 </li>
                 <li style={{ padding: '12px', background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: '8px', color: '#60a5fa' }}>
-                  <strong>ℹ️ دورة جديدة:</strong> هل ترغب في بدء دورة تفريخ جديدة؟ يمكنك إعدادها من صفحة الدورات.
+                  <strong>ℹ️ الدورات النشطة:</strong> {cycles.filter(c => c.status === 'active').length} دورة نشطة حالياً.
                 </li>
                 <li style={{ padding: '12px', background: 'rgba(34, 197, 94, 0.1)', border: '1px solid rgba(34, 197, 94, 0.3)', borderRadius: '8px', color: '#4ade80' }}>
-                  <strong>✅ النظام يعمل بكفاءة:</strong> تم أخذ نسخة احتياطية للبيانات بنجاح اليوم.
+                  <strong>✅ النظام يعمل بكفاءة:</strong> {customers.length} عميل مسجل، {workers.filter(w => w.status === 'active').length} عامل نشط.
                 </li>
               </ul>
             </div>
           </section>
         </>
       )}
-      {activeTab === 'reports' && <section className="card panel">
-        <h2>التقارير وسجل العمليات</h2>
-        <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
-          <button className={reportType === 'financial' ? 'primary' : 'secondary'} onClick={() => { setReportType('financial'); setReport(null); }}>تقرير مالي</button>
-          <button className={reportType === 'operations' ? 'primary' : 'secondary'} onClick={() => { setReportType('operations'); setOperationsLog([]); }}>تقرير العمليات</button>
-        </div>
-        <form className="field-grid" onSubmit={loadReport}>
-          {reportType === 'financial' && (
-            <label>الفترة<select value={reportPeriod} onChange={(e) => setReportPeriod(e.target.value)}><option value="daily">يومي</option><option value="weekly">أسبوعي</option><option value="monthly">شهري</option><option value="custom">مخصص</option></select></label>
-          )}
-          <label>التاريخ المرجعي<input type="date" value={reportDate} onChange={(e) => setReportDate(e.target.value)} /></label>
-          <button className="primary">عرض التقرير</button>
-        </form>
 
-        {reportType === 'financial' && report && <>
-          <div className="action-row no-print">
-            <button type="button" className="secondary" onClick={exportExcel}>تصدير إكسيل (Excel)</button>
-            <button type="button" className="secondary" onClick={handlePrint}>طباعة التقرير</button>
-          </div>
-          <div className="stats-grid report-summary print-content">
-            {Object.entries(report.summary).filter(([key]) => key !== 'active_workers').map(([key, value]) => <div className="card stat" key={key}><span>{key}</span><strong>{fmt(Number(value))}</strong></div>)}
-          </div>
-          <h2 className="print-content">التفاصيل</h2>
-          <div className="table-wrap print-content">
-            <table><tbody>
-              {report.breakdown.map((row) => <tr key={`${row.from}-${row.to}`}><td>{row.label}</td><td>{fmt(Number(row.summary.total_revenues))}</td><td>{fmt(Number(row.summary.net_profit))}</td></tr>)}
-            </tbody></table>
-          </div>
-        </>}
+      {/* ===== WORKERS PAGE (new component) ===== */}
+      {activeTab === 'workers' && (
+        <WorkersPage apiRequest={apiRequest} notify={notify} fmt={fmt} />
+      )}
 
-        {reportType === 'operations' && operationsLog.length > 0 && <>
-          <div className="action-row no-print">
-            <button type="button" className="secondary" onClick={exportExcel}>تصدير إكسيل (Excel)</button>
-            <button type="button" className="secondary" onClick={handlePrint}>طباعة التقرير</button>
-          </div>
-          <div className="table-wrap print-content">
-            <table>
-              <thead><tr><th>التاريخ</th><th>العملية</th><th>التفاصيل</th></tr></thead>
-              <tbody>
-                {operationsLog.map((log) => (
-                  <tr key={log.id}>
-                    <td>{new Date(log.created_at).toLocaleString('ar-EG')}</td>
-                    <td>{log.description || log.event}</td>
-                    <td style={{ fontSize: '0.85em', color: 'var(--text-muted)' }}>{JSON.stringify(log.properties)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>}
-      </section>}
-      {activeTab === 'workers' && <section className="card panel"><h2>إضافة عامل</h2><form onSubmit={createWorker} className="field-grid">
-        <label>الاسم<input required value={workerForm.name} onChange={(e) => setWorkerForm({ ...workerForm, name: e.target.value })} /></label>
-        <label>الهاتف<input value={workerForm.phone} onChange={(e) => setWorkerForm({ ...workerForm, phone: e.target.value })} /></label>
-        <label>الوظيفة<input value={workerForm.job_title} onChange={(e) => setWorkerForm({ ...workerForm, job_title: e.target.value })} /></label>
-        <label>الأجر اليومي<input type="number" min="0" step="0.01" value={workerForm.daily_wage} onChange={(e) => setWorkerForm({ ...workerForm, daily_wage: e.target.value })} /></label>
-        <button className="primary" disabled={loading}>حفظ العامل</button>
-      </form><h2>العمال الحاليون</h2><div className="table-wrap"><table><tbody>{workers.map((worker) => <tr key={worker.id}><td>{worker.name}</td><td>{worker.job_title || '-'}</td><td>{worker.status === 'active' ? 'نشط' : 'غير نشط'}</td></tr>)}</tbody></table></div></section>}
+      {/* ===== WORKER PAYMENTS PAGE (new component) ===== */}
+      {activeTab === 'payments' && (
+        <WorkerPaymentsPage apiRequest={apiRequest} notify={notify} workers={workers} />
+      )}
+
+      {/* ===== CUSTOMERS PAGE (new component) ===== */}
+      {activeTab === 'customers' && (
+        <CustomersPage apiRequest={apiRequest} notify={notify} />
+      )}
+
+      {/* ===== SALES PAGE (new component) ===== */}
+      {activeTab === 'sales' && (
+        <SalesPage apiRequest={apiRequest} notify={notify} customers={customers} cycles={cycles} />
+      )}
+
+      {/* ===== CYCLES PAGE (new component) ===== */}
+      {activeTab === 'operations' && (
+        <CyclesPage apiRequest={apiRequest} notify={notify} />
+      )}
+
+      {/* ===== MONEY ===== */}
       {activeTab === 'money' && <section className="card panel"><h2>تسجيل حركة مالية</h2><form onSubmit={createMoneyRecord} className="field-grid">
         <label>النوع<select value={moneyForm.type} onChange={(e) => setMoneyForm({ ...moneyForm, type: e.target.value })}><option value="expense">مصروف</option><option value="revenue">إيراد</option></select></label>
         <label>المبلغ<input required type="number" min="0.01" step="0.01" value={moneyForm.amount} onChange={(e) => setMoneyForm({ ...moneyForm, amount: e.target.value })} /></label>
@@ -613,38 +403,8 @@ export default function App() {
         <label>الوصف<textarea value={moneyForm.description} onChange={(e) => setMoneyForm({ ...moneyForm, description: e.target.value })} /></label>
         <button className="primary" disabled={loading}>حفظ الحركة</button>
       </form></section>}
-      {activeTab === 'payments' && <section className="card panel"><h2>تسجيل دفعة عامل</h2><form onSubmit={createPayment} className="field-grid">
-        <label>العامل<select required value={paymentForm.worker_id} onChange={(e) => setPaymentForm({ ...paymentForm, worker_id: e.target.value })}><option value="">اختر العامل</option>{workers.filter((w) => w.status === 'active').map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}</select></label>
-        <label>المبلغ<input required type="number" min="0.01" step="0.01" value={paymentForm.amount} onChange={(e) => setPaymentForm({ ...paymentForm, amount: e.target.value })} /></label>
-        <label>التاريخ<input type="date" required value={paymentForm.date} onChange={(e) => setPaymentForm({ ...paymentForm, date: e.target.value })} /></label>
-        <label>ملاحظات<textarea value={paymentForm.notes} onChange={(e) => setPaymentForm({ ...paymentForm, notes: e.target.value })} /></label>
-        <button className="primary" disabled={loading}>حفظ الدفعة</button>
-      </form></section>}
-      {activeTab === 'operations' && <section className="card panel"><h2>إضافة دورة</h2><form onSubmit={(event) => createResource(event, '/cycles', { ...cycleForm, bird_count: Number(cycleForm.bird_count) }, () => setCycleForm({ name: '', start_date: today(), bird_count: '', status: 'active' }))} className="field-grid">
-        <label>اسم الدورة<input required value={cycleForm.name} onChange={(e) => setCycleForm({ ...cycleForm, name: e.target.value })} /></label>
-        <label>تاريخ البداية<input type="date" required value={cycleForm.start_date} onChange={(e) => setCycleForm({ ...cycleForm, start_date: e.target.value })} /></label>
-        <label>عدد الطيور<input type="number" min="1" required value={cycleForm.bird_count} onChange={(e) => setCycleForm({ ...cycleForm, bird_count: e.target.value })} /></label>
-        <button className="primary" disabled={loading}>حفظ الدورة</button>
-      </form><h2>تسجيل وزن</h2><form onSubmit={(event) => createResource(event, '/weights', { cycle_id: weightForm.cycle_id, bird_count: Number(weightForm.bird_count), total_weight: Number(weightForm.total_weight), recorded_date: weightForm.date }, () => setWeightForm({ ...weightForm, bird_count: '', total_weight: '' }))} className="field-grid">
-        <label>الدورة<select required value={weightForm.cycle_id} onChange={(e) => setWeightForm({ ...weightForm, cycle_id: e.target.value })}><option value="">اختر الدورة</option>{cycles.map((cycle) => <option key={cycle.id} value={cycle.id}>{cycle.name}</option>)}</select></label>
-        <label>عدد الطيور<input type="number" min="1" required value={weightForm.bird_count} onChange={(e) => setWeightForm({ ...weightForm, bird_count: e.target.value })} /></label>
-        <label>الوزن الكلي<input type="number" min="0.01" step="0.01" required value={weightForm.total_weight} onChange={(e) => setWeightForm({ ...weightForm, total_weight: e.target.value })} /></label>
-        <button className="primary" disabled={loading}>حفظ الوزن</button>
-      </form></section>}
-      {activeTab === 'sales' && <section className="card panel"><h2>إضافة عميل</h2><form onSubmit={(event) => createResource(event, '/customers', customerForm, () => setCustomerForm({ name: '', phone: '', address: '' }))} className="field-grid">
-        <label>اسم العميل<input required value={customerForm.name} onChange={(e) => setCustomerForm({ ...customerForm, name: e.target.value })} /></label>
-        <label>الهاتف<input value={customerForm.phone} onChange={(e) => setCustomerForm({ ...customerForm, phone: e.target.value })} /></label>
-        <label>العنوان<input value={customerForm.address} onChange={(e) => setCustomerForm({ ...customerForm, address: e.target.value })} /></label>
-        <button className="primary" disabled={loading}>حفظ العميل</button>
-      </form><h2>تسجيل مبيعات</h2><form onSubmit={(event) => createResource(event, '/sales', { customer_id: saleForm.customer_id, cycle_id: saleForm.cycle_id || null, quantity: Number(saleForm.quantity), weight: Number(saleForm.weight), price: Number(saleForm.price), paid_amount: Number(saleForm.paid_amount || 0), sale_date: saleForm.date }, () => setSaleForm({ ...saleForm, quantity: '', weight: '', price: '', paid_amount: '' }))} className="field-grid">
-        <label>العميل<select required value={saleForm.customer_id} onChange={(e) => setSaleForm({ ...saleForm, customer_id: e.target.value })}><option value="">اختر العميل</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}</select></label>
-        <label>الدورة<select value={saleForm.cycle_id} onChange={(e) => setSaleForm({ ...saleForm, cycle_id: e.target.value })}><option value="">بدون دورة</option>{cycles.map((cycle) => <option key={cycle.id} value={cycle.id}>{cycle.name}</option>)}</select></label>
-        <label>العدد<input type="number" min="1" required value={saleForm.quantity} onChange={(e) => setSaleForm({ ...saleForm, quantity: e.target.value })} /></label>
-        <label>الوزن<input type="number" min="0.01" step="0.01" required value={saleForm.weight} onChange={(e) => setSaleForm({ ...saleForm, weight: e.target.value })} /></label>
-        <label>سعر الوحدة<input type="number" min="0.01" step="0.01" required value={saleForm.price} onChange={(e) => setSaleForm({ ...saleForm, price: e.target.value })} /></label>
-        <label>المدفوع<input type="number" min="0" step="0.01" value={saleForm.paid_amount} onChange={(e) => setSaleForm({ ...saleForm, paid_amount: e.target.value })} /></label>
-        <button className="primary" disabled={loading}>حفظ البيع</button>
-      </form></section>}
+
+      {/* ===== INVENTORY ===== */}
       {activeTab === 'inventory' && <section className="card panel"><h2>إضافة مورد</h2><form onSubmit={(event) => createResource(event, '/suppliers', supplierForm, () => setSupplierForm({ name: '', phone: '', email: '', address: '' }))} className="field-grid">
         <label>اسم المورد<input required value={supplierForm.name} onChange={(e) => setSupplierForm({ ...supplierForm, name: e.target.value })} /></label>
         <label>الهاتف<input value={supplierForm.phone} onChange={(e) => setSupplierForm({ ...supplierForm, phone: e.target.value })} /></label>
@@ -662,8 +422,52 @@ export default function App() {
         <label>الكمية<input type="number" min="0.01" step="0.01" required value={stockForm.quantity} onChange={(e) => setStockForm({ ...stockForm, quantity: e.target.value })} /></label>
         <button className="primary" disabled={loading}>حفظ الحركة</button>
       </form><div className="status info">أصناف تحتاج إعادة طلب: {lowStockItems.length}</div></section>}
+
+      {/* ===== REPORTS ===== */}
+      {activeTab === 'reports' && <section className="card panel">
+        <h2>التقارير وسجل العمليات</h2>
+        <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+          <button className={reportType === 'financial' ? 'primary' : 'secondary'} onClick={() => { setReportType('financial'); setReport(null); }}>تقرير مالي</button>
+          <button className={reportType === 'operations' ? 'primary' : 'secondary'} onClick={() => { setReportType('operations'); setOperationsLog([]); }}>تقرير العمليات</button>
+        </div>
+        <form className="field-grid" onSubmit={loadReport}>
+          {reportType === 'financial' && (<label>الفترة<select value={reportPeriod} onChange={(e) => setReportPeriod(e.target.value)}><option value="daily">يومي</option><option value="weekly">أسبوعي</option><option value="monthly">شهري</option><option value="custom">مخصص</option></select></label>)}
+          <label>التاريخ المرجعي<input type="date" value={reportDate} onChange={(e) => setReportDate(e.target.value)} /></label>
+          <button className="primary">عرض التقرير</button>
+        </form>
+        {reportType === 'financial' && report && <>
+          <div className="action-row no-print">
+            <button type="button" className="secondary" onClick={exportExcel}>تصدير إكسيل (Excel)</button>
+            <button type="button" className="secondary" onClick={handlePrint}>طباعة التقرير</button>
+          </div>
+          <div className="stats-grid report-summary print-content">
+            {Object.entries(report.summary).filter(([key]) => key !== 'active_workers').map(([key, value]) => <div className="card stat" key={key}><span>{key}</span><strong>{fmt(Number(value))}</strong></div>)}
+          </div>
+          <h2 className="print-content">التفاصيل</h2>
+          <div className="table-wrap print-content">
+            <table><tbody>{report.breakdown.map((row) => <tr key={`${row.from}-${row.to}`}><td>{row.label}</td><td>{fmt(Number(row.summary.total_revenues))}</td><td>{fmt(Number(row.summary.net_profit))}</td></tr>)}</tbody></table>
+          </div>
+        </>}
+        {reportType === 'operations' && operationsLog.length > 0 && <>
+          <div className="action-row no-print">
+            <button type="button" className="secondary" onClick={exportExcel}>تصدير إكسيل (Excel)</button>
+            <button type="button" className="secondary" onClick={handlePrint}>طباعة التقرير</button>
+          </div>
+          <div className="table-wrap print-content">
+            <table><thead><tr><th>التاريخ</th><th>العملية</th><th>التفاصيل</th></tr></thead><tbody>
+              {operationsLog.map((log) => (<tr key={log.id}><td>{new Date(log.created_at).toLocaleString('ar-EG')}</td><td>{log.description || log.event}</td><td style={{ fontSize: '0.85em', color: 'var(--text-muted)' }}>{JSON.stringify(log.properties)}</td></tr>))}
+            </tbody></table>
+          </div>
+        </>}
+      </section>}
+
+      {/* ===== BACKUPS ===== */}
       {activeTab === 'backups' && <section className="card panel"><h2>النسخ الاحتياطية</h2><button className="primary" onClick={createBackup}>إنشاء نسخة الآن</button><div className="activity-list">{backups.map((backup) => <div className="activity-item" key={backup.id}><span>{backup.filename}</span><button className="secondary" onClick={() => downloadBackup(backup)}>تنزيل</button></div>)}</div></section>}
+
+      {/* ===== ACTIVITY ===== */}
       {activeTab === 'activity' && <section className="card panel"><h2>نتائج البحث</h2>{searchResults.length ? <div className="activity-list">{searchResults.map((result, index) => <div className="activity-item" key={`${result.type}-${result.id}-${index}`}><strong>{result.label || result.name || result.title}</strong><span>{result.type}</span></div>)}</div> : <p>استخدم البحث للوصول السريع إلى سجلات النظام.</p>}<h2>التنبيهات الحالية ({notifications.length})</h2><div className="activity-list">{notifications.map((notification) => <div className="activity-item" key={notification.id}><strong>{notification.title}</strong><span>{notification.message}</span></div>)}</div></section>}
+
+      {/* ===== SETTINGS ===== */}
       {activeTab === 'settings' && <section className="card panel"><h2>إعدادات المزرعة</h2><form onSubmit={saveSettings} className="settings-form">
         <label>اسم المزرعة<input value={settings.farm_name} onChange={(e) => setSettings({ ...settings, farm_name: e.target.value })} /></label>
         <label>المعلومات<textarea value={settings.farm_information || ''} onChange={(e) => setSettings({ ...settings, farm_information: e.target.value })} /></label>
